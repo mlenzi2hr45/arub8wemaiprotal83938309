@@ -106,14 +106,7 @@ export default async function handler(req, res) {
     return res.status(429).send('Too many requests');
   }
   
-  const response = await fetch(targetUrl, {
-    method: req.method,
-    headers: getProxyHeaders(req.headers),
-    body: req.body
-  });
-  
-  res.status(response.status);
-  response.headers.forEach((value, key) => res.setHeader(key, value));
-  
-  return response.body.pipe(res);
-}
+const text = await response.text();
+res.status(response.status);
+response.headers.forEach((value, key) => res.setHeader(key, value));
+return res.send(text);
