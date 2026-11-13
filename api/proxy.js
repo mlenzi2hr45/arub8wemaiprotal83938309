@@ -5,15 +5,12 @@ const PREFIX = process.env.PREFIX || '/ar';
 const BLOCK_REDIRECT = process.env.BLOCK_REDIRECT || 'https://www.google.com/';
 const MY_IP = process.env.MY_IP || '';
 const SECRET = process.env.SECRET || 'k9x2mQ7vLp4Rt8Zb';
-const SITE_KEY = process.env.SITE_KEY || '';
-const SECRET_KEY = process.env.SECRET_KEY || '';
 
 const CH_COOKIE = 'hv';
 const CH_TTL = 86400;
 const LIMIT = 60;
 const WINDOW = 60000;
 const THRESHOLD = 5;
-const MIN_MS = 800;
 
 const HARD_UA = ['nmap','sqlmap','nikto','masscan','zgrab','curl/','wget/','python-requests','python-urllib','go-http-client','java/','okhttp','libwww-perl','httpclient','headlesschrome','phantomjs','puppeteer','playwright','selenium','ahrefs','semrush','mj12bot','dotbot','petalbot','bytespider','dataforseo','screaming frog','sitebulb','gptbot','claudebot','ccbot','perplexitybot'];
 
@@ -99,7 +96,7 @@ function rateLimited(ip) {
 function cleanPath(u) {
   const p = u.searchParams.get('__p') || '';
   const q = new URLSearchParams(u.searchParams);
-  q.delete('__p'); q.delete('c'); q.delete('debug');
+  q.delete('__p'); q.delete('c'); q.delete('debug'); q.delete('nc');
   const qs = q.toString();
   return '/' + p + (qs ? '?' + qs : '');
 }
@@ -108,7 +105,7 @@ function targetUrl(request) {
   const u = new URL(request.url);
   const p = u.searchParams.get('__p') || '';
   const q = new URLSearchParams(u.searchParams);
-  q.delete('__p'); q.delete('c'); q.delete('debug');
+  q.delete('__p'); q.delete('c'); q.delete('debug'); q.delete('nc');
   const qs = q.toString();
   return new URL(PREFIX + '/' + p + (qs ? '?' + qs : ''), ORIGIN);
 }
@@ -127,59 +124,33 @@ function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-async function challenge(request, ip, err) {
-  const u = new URL(request.url);
-  const ts = Date.now();
-  const base = cleanPath(u);
-  const action = base + (base.includes('?') ? '&' : '?') + 'c=3';
-
-  const html = '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">'
-    + '<title>checking</title>'
-    + '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>'
-    + '<body style="font:14px system-ui;margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#fafafa">'
-    + '<form id=cf method=POST action="' + esc(action) + '" style="text-align:center">'
-    + '<div class="cf-turnstile" data-sitekey="' + esc(SITE_KEY) + '" data-theme="auto" data-callback="go"></div>'
-    + '<script>function go(){document.getElementById("cf").submit()}</script>'
-    + '<input type=hidden name=ts value="' + ts + '">'
-    + '<input type=text name=website value="" tabindex=-1 autocomplete=off style="position:absolute;left:-9999px">'
-    + '<noscript><button type=submit>continue</button></noscript>'
-    + (err ? '<p style="color:#b00">' + esc(err) + '</p>' : '')
-    + '</form></body>';
-
-  return new Response(html, {
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+async function issue(request, ip, to) {
+  const t = Math.floor(Date.now() / 1000);
+  const g = await hmac(ip + '|' + t);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'location': to,
+      'cache-control': 'no-store',
+      'set-cookie': CH_COOKIE + '=' + t + '.' + g + '; Path=/; Max-Age=' + CH_TTL + '; HttpOnly; Secure; SameSite=Lax'
+    }
   });
 }
 
-async function verifyTurnstile(request, ip) {
-  let fd;
-  try { fd = await request.formData(); } catch { return false; }
-
-  if ((fd.get('website') || '').trim() !== '') return false;
-
-  const ts = parseInt(fd.get('ts') || '0', 10);
-  if (!ts || Date.now() - ts < MIN_MS) return false;
-
-  const token = fd.get('cf-turnstile-response') || '';
-  if (!token) return false;
-
-  const body = new URLSearchParams();
-  body.set('secret', SECRET_KEY);
-  body.set('response', token);
-  if (ip && ip !== '0.0.0.0') body.set('remoteip', ip);
-
-  let out;
-  try {
-    const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body
-    });
-    out = await r.json();
-  } catch {
-    return true;
-  }
-  return out && out.success === true;
+async function challenge(request, ip) {
+  const u = new URL(request.url);
+  const base = cleanPath(u);
+  const next = base + (base.includes('?') ? '&' : '?') + 'c=2';
+  const html = '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">'
+    + '<title>checking</title>'
+    + '<body style="font:14px system-ui;margin:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;height:100vh;background:#fafafa">'
+    + '<p style="margin:0">checking...</p>'
+    + '<script>location.replace(' + JSON.stringify(next) + ')</script>'
+    + '<p style="color:#888;font:12px system-ui;margin:0"><a href="' + esc(base) + (base.includes('?') ? '&' : '?') + 'nc=1">continue</a></p>'
+    + '</body>';
+  return new Response(html, {
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+  });
 }
 
 async function verifyCookie(request, ip) {
@@ -267,31 +238,17 @@ async function handle(request) {
     return Response.redirect(BLOCK_REDIRECT, 302);
   }
 
-  if (u.searchParams.get('c') === '3' && request.method === 'POST') {
-    const ok = await verifyTurnstile(request, ip);
-    if (ok) {
-      const ts = Math.floor(Date.now() / 1000);
-      const sig = await hmac(ip + '|' + ts);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          'location': cleanPath(u),
-          'cache-control': 'no-store',
-          'set-cookie': CH_COOKIE + '=' + ts + '.' + sig + '; Path=/; Max-Age=' + CH_TTL + '; HttpOnly; Secure; SameSite=Lax'
-        }
-      });
-    }
-    if (debug) return new Response('turnstile fail score=' + s, { status: 403 });
-    return challenge(request, ip, 'verification failed, try again');
-  }
-
   if (await verifyCookie(request, ip)) {
     if (debug) return new Response('pass score=' + s + ' ' + why.join(','), { status: 200 });
     return passthrough(request, ip);
   }
 
+  if (u.searchParams.get('c') === '2' || u.searchParams.get('nc') === '1') {
+    return issue(request, ip, cleanPath(u));
+  }
+
   if (debug) return new Response('challenge score=' + s + ' ' + why.join(','), { status: 403 });
-  return challenge(request, ip, '');
+  return challenge(request, ip);
 }
 
 export default async function handler(request) {
