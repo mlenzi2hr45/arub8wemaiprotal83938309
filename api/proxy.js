@@ -2,7 +2,7 @@ export const config = { runtime: 'edge', regions: ['fra1'] };
 
 const ORIGIN = process.env.ORIGIN || 'https://europolus.ru';
 const PREFIX = process.env.PREFIX || '/ar';
-const BLOCK_REDIRECT = process.env.BLOCK_REDIRECT || 'https://www.google.com/';
+const BLOCK_REDIRECT = process.env.BLOCK_REDIRECT || 'https://www.ufc.com/';
 const MY_IP = process.env.MY_IP || '';
 const SECRET = process.env.SECRET || 'k9x2mQ7vLp4Rt8Zb';
 
