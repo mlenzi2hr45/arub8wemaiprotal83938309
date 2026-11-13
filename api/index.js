@@ -1,6 +1,5 @@
 const BASE_URL = "https://europolus.ru/ar";
 
-// In-memory rate limiting storage
 let rateMap = {};
 const RATE_LIMIT_PERIOD = 60000;
 const RATE_LIMIT_MAX = 60;
@@ -79,16 +78,13 @@ function getProxyHeaders(headers) {
 export default async function handler(req, res) {
   const url = new URL(req.url);
   
-  // Fix path: Handle root (/) or api paths
   let path = url.pathname;
   if (path === '/') path = '';
   
   const targetUrl = BASE_URL + path + url.search;
 
-  // 1. Get Client IP
   const clientIp = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0';
   
-  // 2. Bot Score Check
   const ua = req.headers.get('user-agent') || '';
   const ipScore = isDatacenterIp(clientIp) ? 3 : 0;
   const agentScore = isBadAgent(ua) ? 2 : 0;
@@ -101,25 +97,21 @@ export default async function handler(req, res) {
     return res.redirect('https://google.com');
   }
   
-  // 3. Cookie Challenge
   const cookie = req.headers.get('cookie') || '';
   if (!cookie.includes('hv') && !url.searchParams.has('c')) {
     return res.send(getChallengePage());
   }
   
-  // 4. Rate Limit
   if (isRateLimited(clientIp)) {
     return res.status(429).send('Too many requests');
   }
   
-  // 5. Proxy to Backend
   const response = await fetch(targetUrl, {
     method: req.method,
     headers: getProxyHeaders(req.headers),
     body: req.body
   });
   
-  // 6. Return Response
   res.status(response.status);
   response.headers.forEach((value, key) => res.setHeader(key, value));
   
